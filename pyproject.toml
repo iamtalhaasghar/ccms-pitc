@@ -1,0 +1,12 @@
+[project]
+name = "ccms_pitc"
+version = "0.1.0"
+description = "Track electricity outages of your MEPCO feeder."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "requests>=2.31.0",
+  "python-dotenv>=1.0.0",
+  "pymysql>=1.1.0",
+  "fake-useragent>=1.5.1",
+]
