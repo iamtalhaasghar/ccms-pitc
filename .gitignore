@@ -3,3 +3,4 @@ logs
 responses
 .env
 response.json
+/uv.lock

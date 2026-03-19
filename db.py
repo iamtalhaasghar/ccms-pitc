@@ -10,6 +10,7 @@ HISTORY_TABLE = "history"
 TRIPPING_TABLE = "tripping"
 MAINTENANCE_TABLE = "maintenance"
 MAINTENANCE_SCH_TABLE = "maintenance_sch"
+BILL_TABLE = "bill"
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -110,6 +111,23 @@ def ensure_db_and_tables():
             """.strip()
         )
 
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS `{BILL_TABLE}` (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `month` DATE NOT NULL,
+                `units` INT NOT NULL DEFAULT 0,
+                `cost` INT NOT NULL DEFAULT 0,
+                `prev_read` INT NULL,
+                `pres_read` INT NULL,
+                `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_bill_month` (`month`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """.strip()
+        )
+
 
 def parse_day_key(key: str) -> datetime.date:
     if not key.startswith("dt_") or len(key) != 11:
@@ -165,6 +183,35 @@ def upsert_maintenance(day: datetime.date, minutes_by_hour: list[int]) -> int:
 
 def upsert_maintenance_sch(day: datetime.date, minutes_by_hour: list[int]) -> int:
     return _upsert_hourly_minutes(MAINTENANCE_SCH_TABLE, day, minutes_by_hour)
+
+
+def upsert_bill_months(rows: list[dict]) -> int:
+    """
+    Each row: {month: date, units: int, cost: int, prev_read: int|None, pres_read: int|None}
+    Upsert rule: on duplicate month, update units/cost only if incoming values are non-zero.
+                 prev_read/pres_read updated only when provided (not None).
+    """
+    if not rows:
+        return 0
+
+    sql = f"""
+        INSERT INTO `{BILL_TABLE}` (`month`, `units`, `cost`, `prev_read`, `pres_read`)
+        VALUES (%s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            units     = CASE WHEN VALUES(units) <> 0 THEN VALUES(units) ELSE units END,
+            cost      = CASE WHEN VALUES(cost)  <> 0 THEN VALUES(cost)  ELSE cost  END,
+            prev_read = CASE WHEN VALUES(prev_read) IS NOT NULL THEN VALUES(prev_read) ELSE prev_read END,
+            pres_read = CASE WHEN VALUES(pres_read) IS NOT NULL THEN VALUES(pres_read) ELSE pres_read END
+    """.strip()
+
+    values = [
+        (r["month"], r["units"], r["cost"], r.get("prev_read"), r.get("pres_read"))
+        for r in rows
+    ]
+
+    with _connect(DB_NAME) as conn, conn.cursor() as cur:
+        cur.executemany(sql, values)
+        return cur.rowcount
 
 
 def insert_event_logs(rows: Iterable[Mapping[str, Any]]) -> int:
